@@ -1,21 +1,26 @@
 package org.akhq.models;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import lombok.*;
+import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.EncoderFactory;
+import org.apache.avro.io.JsonEncoder;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.record.TimestampType;
-import org.joda.time.DateTime;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.Base64;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -47,7 +52,7 @@ public class Record {
 
     @Getter(AccessLevel.NONE)
     private String value;
-
+    
     public Record(RecordMetadata record, byte[] bytesKey, byte[] bytesValue, Map<String, String> headers) {
         this.topic = record.topic();
         this.partition = record.partition();
@@ -108,7 +113,17 @@ public class Record {
         } else  if (keySchemaId != null) {
             try {
                 GenericRecord deserialize = (GenericRecord) kafkaAvroDeserializer.deserialize(topic, payload);
-                return deserialize.toString();
+
+                ByteArrayOutputStream os = new ByteArrayOutputStream();
+                JsonEncoder encoder = EncoderFactory.get().jsonEncoder(deserialize.getSchema(), os);
+                DatumWriter<Object> writer = new GenericDatumWriter<>();
+
+                writer.setSchema(deserialize.getSchema());
+                writer.write(deserialize, encoder);
+                encoder.flush();
+                String jsonString = new String(os.toByteArray(), Charset.forName("UTF-8"));
+                os.close();
+                return jsonString;
             } catch (Exception exception) {
                 return new String(payload);
             }
